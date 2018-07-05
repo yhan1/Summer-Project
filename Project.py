@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from scipy import stats
+from sklearn.linear_model import LassoLarsIC
 
 #read in data
 ind = pd.read_csv("Data/30_Industry_Portfolios.CSV", skiprows = 11)
@@ -40,23 +41,28 @@ for i in range(1, len(indNames)):
 # print(rf.tail())
 # print(ind.shape)
 # print(rf.shape)
-print(exsReturns.dtypes)
+#print(exsReturns.dtypes)
 print(exsReturns.head())
 print(exsReturns.tail())
-
-
 
 #create new dataframe to hold summary statistics
 resNames = ["Ann mean", "Ann vol", "Minimum", "Maximum", "Ann Sharpe"]
 res = pd.DataFrame(columns = resNames)
-# for i in range(1, len(indNames)):
-#     res.iloc[i-1, 0] = np.power(exsReturns.iloc[:,i].prod(axis=0),1/nrow)
-i = 1
-addExs = exsReturns.copy()
-addExs.iloc[:, 1:] = (exsReturns.iloc[:, 1:]/100 + 1)
-
-print(addExs.head())
 
 nyr = int(endDate[:4]) - int(begDate[:4])
 print(nyr)
-print(stats.gmean(addExs.iloc[:, 1:], axis=0)**(1.0/nyr) - 1)
+#print((stats.gmean(addExs.iloc[:, 1:], axis=0) - 1)*100)
+
+#ann mean, vol, min, max, sharpe
+res.iloc[:, 0] = (np.prod(exsReturns.iloc[:, 1:]/100 + 1, axis=0) ** (1/(nrow/12)) -1)*100
+res.iloc[:, 1] = (np.std(exsReturns.iloc[:, 1:], axis=0) * (12 ** 0.5))
+res.iloc[:, 2] = np.amin(exsReturns.iloc[:, 1:], axis=0)
+res.iloc[:, 3] = np.amax(exsReturns.iloc[:, 1:], axis=0)
+res.iloc[:, 4] = res.iloc[:, 0] / res.iloc[:, 1]
+
+print(res.head())
+print(res.tail())
+
+lasso = LassoLarsIC(criterion = "aic")
+lasso.fit(exsReturns.iloc[:, 1:])
+
