@@ -10,16 +10,43 @@ def main():
 	begDate = "195912"
 	endDate = "201612"
 	(ind, rf) = loadData(indPath, rfPath, begDate, endDate)
-	table1 = summaryStat(ind, rf)
-	#print(table1)
-
-	#model
 	exsReturns = excessReturns(ind, rf)
-	indIndex = 1 # 1 to 30 inclusive
-	lasso = lassoM(exsReturns, indIndex) #lasso for variable selection
+	
+	classList = createClass(exsReturns)
+	sumTable = summaryStat(ind, rf)
+	#print(sumTable)
+	writer = pd.ExcelWriter("output.xlsx")
+	sumTable.to_excel(writer, "Sheet1")
+	writer.save()
+
+
+	indNames = list(exsReturns)
+
+
+	#for indIndex in range(len(exsReturns)):
+# 		#indIndex: 0 to 29 inclusive
+# 		(ynorm, Xnorm) = normalize(classList, indIndex)
+# 		lasso = lassoM(ynorm, Xnorm)
+# #lassoM(exsReturns, indIndex, sumTable) #lasso for variable selection
+# 		xIndex = np.nonzero(lasso.coef_)[0]
+# 		Xlin = Xnorm[Xnorm.columns[xIndex]]
+# 		print(Xlin)
+# 		ols = linearM(ynorm, Xlin)
+# 		print(indIndex)
+# 		print(xIndex)
+# 		print(ols.coef_)
+	indIndex = 0
+	(ynorm, Xnorm) = normalize(classList, indIndex)
+	lasso = lassoM(ynorm, Xnorm)
+#lassoM(exsReturns, indIndex, sumTable) #lasso for variable selection
 	xIndex = np.nonzero(lasso.coef_)[0]
-	ols = linearM(exsReturns, indIndex, xIndex)
+	Xlin = Xnorm[Xnorm.columns[xIndex]]
+	print(Xlin)
+	ols = linearM(ynorm, Xlin)
+	print(indIndex)
+	print(xIndex)
 	print(ols.coef_)
+
 
 
 def loadData(indPath, rfPath, begDate, endDate):
@@ -45,8 +72,17 @@ def loadData(indPath, rfPath, begDate, endDate):
 	#convert returns to float and year to int
 	ind[indNames[1:]] = ind[indNames[1:]].astype(float)
 	ind[indNames[0]] = ind[indNames[0]].astype(int)
+	rf["rf"] = rf["rf"] * 100 #all returns in percentages
 
 	return (ind, rf)
+
+def createClass(excessReturns):
+	classList = []
+	colNames = list(excessReturns)
+	for i in range(len(colNames)):
+		a = IndExs(i, excessReturns)
+		classList.append(a)
+	return classList
 
 
 def excessReturns(ind, rf):
@@ -54,7 +90,7 @@ def excessReturns(ind, rf):
 	indNames = list(ind)
 	for i in range(1, len(indNames)):
 		exsReturns.iloc[:, i] = ind.iloc[:, i] - rf.iloc[:, 1]
-	return exsReturns
+	return exsReturns.iloc[:, 1:] #leave out dates
 
 
 def summaryStat(ind, rf):
@@ -68,6 +104,7 @@ def summaryStat(ind, rf):
 
 	#ann mean, vol, min, max, sharpe
 	res.iloc[:, 0] = (np.prod(exsReturns.iloc[:, 1:]/100 + 1, axis=0) ** (1/(nrow/12)) -1)*100
+	#res.iloc[:, 0] = np.mean(exsReturns.iloc[:, 1:], axis=0)
 	res.iloc[:, 1] = (np.std(exsReturns.iloc[:, 1:], axis=0) * (12 ** 0.5))
 	res.iloc[:, 2] = np.amin(exsReturns.iloc[:, 1:], axis=0)
 	res.iloc[:, 3] = np.amax(exsReturns.iloc[:, 1:], axis=0)
@@ -77,31 +114,46 @@ def summaryStat(ind, rf):
 
 
 class IndExs(object):
-	def __init__(self, indIndex, df):
-		self.series = df.iloc[:, indIndex]
-		self.n = len(self.series)
-		# self.y = df.iloc[1:, indIndex] #does not include first month (1959-12), for lagged return
-		# self.X = df.iloc[:-1, ] #leave out last month (2016-12) for lagged return
+	def __init__(self, indIndex, df): #df = excess returns dataframe
+		self.exs = df.iloc[:, indIndex]
+		self.n = len(self.exs)
+		self.y = self.exs[1:]      #does not include first month (1959-12), for lagged return
+		self.df = df
+		self.X = df.iloc[:-1, ]    #leave out last month (2016-12) for lagged return
+		self.mean = (np.prod(self.exs/100 + 1, axis=0) ** (1/(len(self.exs)/12)) -1)*100
+		self.sd = (np.std(self.exs, axis=0) * (12 ** 0.5))
+		
+		self.ynorm = (self.y - self.mean) / self.sd
+		self.Xnorm = pd.DataFrame(columns = list(df))
 
-def lassoM(exsReturns, indIndex):
+		self.min = np.amin(self.exs, axis=0)
+		self.max = np.amax(self.exs, axis=0)
+		self.sharpe = self.mean / self.sd
+
+def normalize(classList, indIndex):
+	y = classList[indIndex]
+	ynorm = (y.exs - y.mean) / y.sd
+	Xnorm = pd.DataFrame(columns = list(y.df))
+	i = 0
+	for ind in classList:
+		#xnorm = (ind.exs - ind.mean) / ind.sd
+		Xnorm.iloc[:, i] = (ind.exs - ind.mean) / ind.sd
+		i += 1
+	return (ynorm, Xnorm)
+
+def lassoM(ynorm, Xnorm):
 	lasso = LassoLarsIC(criterion = "aic")
-	print("Industry = ", list(exsReturns)[indIndex])
-	y = exsReturns.iloc[1:, indIndex]
-	X = exsReturns.iloc[:-1]
-	lasso.fit(X, y)
+	#print("Industry = ", colNames[indIndex])
+	#normalize/standardize the returns
+
+	lasso.fit(Xnorm, ynorm)
 	return lasso
 
 
-def linearM(exsReturns, indIndex, xIndex):
+def linearM(ylin, Xlin):
 	lin = LinearRegression()
-	tmp = exsReturns.iloc[:-1]
-	X = tmp[tmp.columns[xIndex]]
-	y = exsReturns.iloc[1:, indIndex]
-	lin.fit(X, y)
+	lin.fit(Xlin, ylin)
 	return lin
-
-
-
 
 
 # lasso = LassoLarsIC(criterion = "aic")
