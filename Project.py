@@ -12,7 +12,11 @@ def main():
 	endDate = "201612"
 	(ind, rf) = loadData(indPath, rfPath, begDate, endDate)
 	exsReturns = excessReturns(ind, rf) #no date
-	
+	writer = pd.ExcelWriter("excess.xlsx")
+	exsReturns.to_excel(writer, "Sheet1")
+	writer.save()
+
+
 	#creat list of industry classes
 	classList = createClass(exsReturns)
 	sumTable = summaryStat(ind, rf)
@@ -33,7 +37,8 @@ def main():
 		xIndex = np.nonzero(lasso.coef_)[0]
 		Xlin = X[X.columns[xIndex]]
 		print("Industry = ", indNames[indIndex])
-		print(xIndex)
+		for i in xIndex:
+			print (indNames[i])
 		# print(lasso.coef_)
 		#print(ols.coef_)
 
@@ -108,6 +113,7 @@ class IndExs(object):
 		self.y = self.exs[1:]      #does not include first month (1959-12), for lagged return
 		self.X = df.iloc[:-1, ]    #leave out last month (2016-12) for lagged return
 		self.df = df
+		self.name = list(df)[indIndex]
 
 def normalize(classList, indIndex):
 	yInd = classList[indIndex]
@@ -125,7 +131,6 @@ def norm(series):
 	return (series - np.mean(series) / np.std(series))
 
 def lassoM(X, y):
-	#lasso = LassoLarsIC(criterion = "aic")
 	lasso = LassoLarsIC(criterion = "aic", normalize = True)
 	lasso.fit(X, y)
 	print(lasso.alpha_)
