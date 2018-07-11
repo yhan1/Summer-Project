@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from scipy import stats
-from sklearn.linear_model import LassoLarsIC, LinearRegression
+from sklearn.linear_model import LassoLarsIC, LinearRegression, LassoCV, LassoLarsCV
 from sklearn import preprocessing
 
 
@@ -20,28 +20,35 @@ def main():
 	#creat list of industry classes
 	classList = createClass(exsReturns)
 	sumTable = summaryStat(ind, rf)
-	print(sumTable)
+	# print(sumTable)
 	# writer = pd.ExcelWriter("output.xlsx")
 	# sumTable.to_excel(writer, "Sheet1")
 	# writer.save()
 
 
 	indNames = list(exsReturns)
-	
-	for indIndex in range(len(indNames)):
-		#(Xnorm, ynorm) = normalize(classList, indIndex)
-		X = classList[indIndex].X
-		y = classList[indIndex].y
-		lasso = lassoM(X, y)
+	m = ["aic", "bic", "LassoCV", "LassoLarsCV"] #aic and bic is using LassoLarsIC
+	for method in m:
+		lassoResults = pd.DataFrame(np.zeros((len(indNames), len(indNames))))
+		for indIndex in range(len(indNames)):
 
-		xIndex = np.nonzero(lasso.coef_)[0]
-		Xlin = X[X.columns[xIndex]]
-		print("Industry = ", indNames[indIndex])
-		for i in xIndex:
-			print (indNames[i])
+			X = classList[indIndex].X
+			y = classList[indIndex].y
+
+			lasso = lassoM(X, y, method)
+			xIndex = np.nonzero(lasso.coef_)[0]
+			Xlin = X[X.columns[xIndex]]
+			for i in range(len(xIndex)):
+				lassoResults.iloc[indIndex, i] = xIndex[i]
+
+			# print("Industry = ", indNames[indIndex])
+			# print(xIndex)
+
 		# print(lasso.coef_)
-		#print(ols.coef_)
-
+		# print(ols.coef_)
+		# writer = pd.ExcelWriter(method + ".xlsx")
+		# lassoResults.to_excel(writer, "Sheet1")
+		# writer.save()
 
 def loadData(indPath, rfPath, begDate, endDate):
 	#read in data
@@ -130,17 +137,23 @@ def normalize(classList, indIndex):
 def norm(series):
 	return (series - np.mean(series) / np.std(series))
 
-def lassoM(X, y):
-	lasso = LassoLarsIC(criterion = "aic", normalize = True)
-	lasso.fit(X, y)
-	print(lasso.alpha_)
+def lassoM(X, y, method):
+	if (method == "aic") or (method == "bic"):
+		lasso = LassoLarsIC(criterion = method, normalize = True)
+		lasso.fit(X, y)
+	elif method == "LassoCV": 
+		lasso = LassoCV(cv = 20).fit(X, y)
+	
+	elif method == "LassoLarsCV": 
+		lasso = LassoLarsCV(cv = 20).fit(X, y)
+	
+	#print(lasso.alpha_)
 	return lasso
 
 def linearM(X, y):
 	lin = LinearRegression()
 	lin.fit(X, y)
 	return lin
-
 
 
 main()
