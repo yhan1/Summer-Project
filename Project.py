@@ -3,9 +3,13 @@ import numpy as np
 from scipy import stats
 from sklearn.linear_model import LassoLarsIC, LinearRegression, LassoCV, LassoLarsCV
 from sklearn import preprocessing
+import networkx as nx
 
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
 
 def main():
+
 	indPath = "Data/30_Industry_Portfolios.CSV"
 	rfPath = "Data/rf.csv"
 	begDate = "195912"
@@ -37,10 +41,53 @@ def main():
 
 	# compare number of times industry is selected by lasso with industry centrality score
 	lassoResults = regression(exsReturns, m[0], classList)
-	indCount = lassoResults.astype(bool).sum(axis=1)
 	
 
-	print(indCount.head())
+
+	oecdDF = loadIOT("Data/IOT.csv", "United States")
+	calc = calcCentrality(oecdDF, lassoResults)
+
+	# array = ['yellow', 'green']
+	# df.loc[df['favorite_color'].isin(array)]
+
+
+
+def calcCentrality(oecdDF, famaDF):
+	famaDF["Count"] = famaDF.astype(bool).sum(axis=1) #number of times industry is selected by lasso
+	
+	oecdlist = ["Food", "Puls", "Health", "Chemicals", "Textiles", "Construction", "Basic", "Fabricated", "Electrical", "Motor", 
+				"Other", "Mining", "Coke", "Electricity", "Post", "Other", "Computer", "Transport", "Wholesale", "Hotels", "Financial"] #change this
+	famalist = ["Food", "Books", "Hlth",   "Chems",     "Txtls",      "Cnstr",      "Steel", "FabPr",    "ElecEq",       "Autos", 
+				"Carry", "Coal",   "Oil",    "Util",    "Telcm", "Servs", "BusEq",     "Trans",      "Rtail",    "Meals",  "Fin"] 
+
+	famaCount = famaDF.loc[famalist, "Count"] #use this for regression
+
+	adjMatrix = nx.adjacency_matrix(oecdDF)
+	print(adjMatrix)
+
+	return famaCount
+
+
+# path = "Data/IOT.csv"
+# country = "United States"
+def loadIOT(path, country):
+	iot = pd.read_csv(path)
+	iot.apply(pd.to_numeric, errors = 'ignore')
+	iot["Country"] = iot["Country"].astype('str')
+	iot = iot.loc[(iot["Country"] == country) & (iot["Time"] == 2011) & (iot["Row sector (from:)"] != "Private households with employed persons") & (iot["Row sector (from:)"] != "Total backward linkage"), ["Row sector (from:)", "Column sector (to:)", "Value"]]
+
+	iot["Row sector (from:)"] = iot["Row sector (from:)"].str[0:10]
+	iot["Column sector (to:)"] = iot["Column sector (to:)"].str[0:10]
+
+	iot.columns = ["source", "target", "weight"]
+	
+
+	iot = iot.reset_index(drop=True)
+	print(iot["source"][:45])
+	networkDF = nx.from_pandas_edgelist(iot, edge_attr=True)
+	#print(networkDF["Agriculture"]["Agriculture"]["weight"])
+	return networkDF
+
 
 def regression(exsReturns, method, classList):
 	indNames = list(exsReturns)
@@ -56,7 +103,6 @@ def regression(exsReturns, method, classList):
 		Xlin = X[X.columns[xIndex]]
 		if xIndex != []:
 			ols = linearM(Xlin, y)
-			print(ols.coef_)
 			j = 0
 			for i in xIndex:
 				lassoResults.iloc[indIndex, i] = ols.coef_[j]
