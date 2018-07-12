@@ -12,9 +12,9 @@ def main():
 	endDate = "201612"
 	(ind, rf) = loadData(indPath, rfPath, begDate, endDate)
 	exsReturns = excessReturns(ind, rf) #no date
-	writer = pd.ExcelWriter("excess.xlsx")
-	exsReturns.to_excel(writer, "Sheet1")
-	writer.save()
+	# writer = pd.ExcelWriter("excess.xlsx")
+	# exsReturns.to_excel(writer, "Sheet1")
+	# writer.save()
 
 
 	#creat list of industry classes
@@ -28,27 +28,40 @@ def main():
 
 	indNames = list(exsReturns)
 	m = ["aic", "bic", "LassoCV", "LassoLarsCV"] #aic and bic is using LassoLarsIC
-	for method in m:
-		lassoResults = pd.DataFrame(np.zeros((len(indNames), len(indNames))))
-		for indIndex in range(len(indNames)):
 
-			X = classList[indIndex].X
-			y = classList[indIndex].y
-
-			lasso = lassoM(X, y, method)
-			xIndex = np.nonzero(lasso.coef_)[0]
-			Xlin = X[X.columns[xIndex]]
-			for i in range(len(xIndex)):
-				lassoResults.iloc[indIndex, i] = xIndex[i]
-
-			# print("Industry = ", indNames[indIndex])
-			# print(xIndex)
-
-		# print(lasso.coef_)
-		# print(ols.coef_)
+	# for method in m:
+	# 	lassoResults = regression(exsReturns, method)
 		# writer = pd.ExcelWriter(method + ".xlsx")
 		# lassoResults.to_excel(writer, "Sheet1")
 		# writer.save()
+
+	# compare number of times industry is selected by lasso with industry centrality score
+	lassoResults = regression(exsReturns, m[0], classList)
+	indCount = lassoResults.astype(bool).sum(axis=1)
+	
+
+	print(indCount.head())
+
+def regression(exsReturns, method, classList):
+	indNames = list(exsReturns)
+	lassoResults = pd.DataFrame(np.zeros((len(indNames), len(indNames))), columns = indNames, index = indNames)
+
+	for indIndex in range(len(indNames)):
+
+		X = classList[indIndex].X
+		y = classList[indIndex].y
+
+		lasso = lassoM(X, y, method)
+		xIndex = np.nonzero(lasso.coef_)[0]
+		Xlin = X[X.columns[xIndex]]
+		if xIndex != []:
+			ols = linearM(Xlin, y)
+			print(ols.coef_)
+			j = 0
+			for i in xIndex:
+				lassoResults.iloc[indIndex, i] = ols.coef_[j]
+				j += 1
+	return lassoResults
 
 def loadData(indPath, rfPath, begDate, endDate):
 	#read in data
