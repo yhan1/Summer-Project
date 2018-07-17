@@ -15,22 +15,23 @@ def main():
 	begDate = "195912"
 	endDate = "201612"
 	(ind, rf) = loadData(indPath, rfPath, begDate, endDate)
-	exsReturns = excessReturns(ind, rf) #no date
+	exsReturns = excessReturns(ind, rf) 
+	nrow = rf.count()[0]
 	# writer = pd.ExcelWriter("excess.xlsx")
 	# exsReturns.to_excel(writer, "Sheet1")
 	# writer.save()
 
 
 	#creat list of industry classes
-	classList = createClass(exsReturns)
-	sumTable = summaryStat(ind, rf)
+	classList = createClass(exsReturns.iloc[:, 1:]) # no date
+	sumTable = summaryStat(exsReturns.iloc[:, 1:]) # no date
 	# print(sumTable)
 	# writer = pd.ExcelWriter("output.xlsx")
 	# sumTable.to_excel(writer, "Sheet1")
 	# writer.save()
 
 
-	indNames = list(exsReturns)
+	indNames = list(exsReturns.iloc[:, 1:])
 	m = ["aic", "bic", "LassoCV", "LassoLarsCV"] #aic and bic is using LassoLarsIC
 
 	# for method in m:
@@ -39,64 +40,43 @@ def main():
 		# lassoResults.to_excel(writer, "Sheet1")
 		# writer.save()
 
-	# compare number of times industry is selected by lasso with industry centrality score
-	lassoResults = regression(exsReturns, m[0], classList)
+	df = exsReturns #with date
+	fullPeriodResult = regression(df) # use aic
+	
+	# expanding period L/S portfolio construction
+	startRow = 0
+	endRow = df.loc[df["Date"] == 196912].index[0]
+	lastRow = df.loc[df["Date"] == 201612].index[0]
+	#for e in range(endRow, lastRow):
+	e = endRow
+	print("startRow = ", startRow, "endRow = ", e)
+	B = regression(df, endRow = e)
+	X = df.iloc[e + 1, 1:] # no date, next time period
+	yhat = np.dot(B, X)
+	yhat = pd.DataFrame(yhat, index = B.index, columns = ["yhat"])
+	print(yhat)
+	yhat.sort_values(by = ["yhat"], ascending = True, inplace = True)
+	#print(yhat)
+	print(df.iloc[e + 1, 1:])
+
+
+
+
+
+
 	
 
 
-	oecdDF = loadIOT("Data/IOT.csv", "United States")
-	calc = calcCentrality(oecdDF, lassoResults)
+def regression(df, method="aic", startRow = 0, endRow = 684): #inclusive rows 
 
-	# array = ['yellow', 'green']
-	# df.loc[df['favorite_color'].isin(array)]
+	indNames = list(df.iloc[:, 1:])
 
-
-
-def calcCentrality(oecdDF, famaDF):
-	famaDF["Count"] = famaDF.astype(bool).sum(axis=1) #number of times industry is selected by lasso
-	
-	oecdlist = ["Food", "Puls", "Health", "Chemicals", "Textiles", "Construction", "Basic", "Fabricated", "Electrical", "Motor", 
-				"Other", "Mining", "Coke", "Electricity", "Post", "Other", "Computer", "Transport", "Wholesale", "Hotels", "Financial"] #change this
-	famalist = ["Food", "Books", "Hlth",   "Chems",     "Txtls",      "Cnstr",      "Steel", "FabPr",    "ElecEq",       "Autos", 
-				"Carry", "Coal",   "Oil",    "Util",    "Telcm", "Servs", "BusEq",     "Trans",      "Rtail",    "Meals",  "Fin"] 
-
-	famaCount = famaDF.loc[famalist, "Count"] #use this for regression
-
-	adjMatrix = nx.adjacency_matrix(oecdDF)
-	print(adjMatrix)
-
-	return famaCount
-
-
-# path = "Data/IOT.csv"
-# country = "United States"
-def loadIOT(path, country):
-	iot = pd.read_csv(path)
-	iot.apply(pd.to_numeric, errors = 'ignore')
-	iot["Country"] = iot["Country"].astype('str')
-	iot = iot.loc[(iot["Country"] == country) & (iot["Time"] == 2011) & (iot["Row sector (from:)"] != "Private households with employed persons") & (iot["Row sector (from:)"] != "Total backward linkage"), ["Row sector (from:)", "Column sector (to:)", "Value"]]
-
-	iot["Row sector (from:)"] = iot["Row sector (from:)"].str[0:10]
-	iot["Column sector (to:)"] = iot["Column sector (to:)"].str[0:10]
-
-	iot.columns = ["source", "target", "weight"]
-	
-
-	iot = iot.reset_index(drop=True)
-	print(iot["source"][:45])
-	networkDF = nx.from_pandas_edgelist(iot, edge_attr=True)
-	#print(networkDF["Agriculture"]["Agriculture"]["weight"])
-	return networkDF
-
-
-def regression(exsReturns, method, classList):
-	indNames = list(exsReturns)
 	lassoResults = pd.DataFrame(np.zeros((len(indNames), len(indNames))), columns = indNames, index = indNames)
+	df = df.iloc[startRow:endRow + 1, 1:] # no date
 
 	for indIndex in range(len(indNames)):
-
-		X = classList[indIndex].X
-		y = classList[indIndex].y
+		X = df.iloc[:-1, :] 
+		y = df.iloc[1:, indIndex]
 
 		lasso = lassoM(X, y, method)
 		xIndex = np.nonzero(lasso.coef_)[0]
@@ -141,25 +121,24 @@ def excessReturns(ind, rf):
 	indNames = list(ind)
 	for i in range(1, len(indNames)):
 		exsReturns.iloc[:, i] = ind.iloc[:, i] - rf.iloc[:, 1]
-	return exsReturns.iloc[:, 1:] #leave out dates
+	return exsReturns
 
 def createClass(excessReturns):
 	classList = []
-	colNames = list(excessReturns)
+	colNames = list(excessReturns.iloc[:, 1:])
 	for i in range(len(colNames)):
 		a = IndExs(i, excessReturns)
 		classList.append(a)
 	return classList
 
 
-def summaryStat(ind, rf):
-	exsReturns = excessReturns(ind, rf)
+def summaryStat(exsReturns):
+
 
 	#create new dataframe to hold summary statistics
 	resNames = ["Ann mean", "Ann vol", "Minimum", "Maximum", "Ann Sharpe"]
 	res = pd.DataFrame(columns = resNames)
 
-	nrow = rf.count()[0]
 
 	#ann mean, vol, min, max, sharpe
 	#res.iloc[:, 0] = (np.prod(exsReturns/100 + 1, axis=0) ** (1/(nrow/12)) -1)*100
@@ -174,10 +153,10 @@ def summaryStat(ind, rf):
 
 class IndExs(object):
 	def __init__(self, indIndex, df): #df = excess returns dataframe
-		self.exs = df.iloc[:, indIndex]
-		self.n = len(self.exs)
-		self.y = self.exs[1:]      #does not include first month (1959-12), for lagged return
-		self.X = df.iloc[:-1, ]    #leave out last month (2016-12) for lagged return
+		#self.exs = df.iloc[:, indIndex]
+		#self.n = len(self.exs)
+		#self.y = self.exs[1:]      #does not include first month (1959-12), for lagged return
+		#self.X = df.iloc[:-1, ]    #leave out last month (2016-12) for lagged return
 		self.df = df
 		self.name = list(df)[indIndex]
 
