@@ -41,7 +41,11 @@ def main():
 		# writer.save()
 
 	df = exsReturns #with date
-	fullPeriodResult = regression(df) # use aic
+	(inter, fullPeriodResult)= regression(df) # use aic
+	# writer = pd.ExcelWriter("aic" + ".xlsx")
+	# fullPeriodResult.to_excel(writer, "Sheet1")
+	# writer.save()
+	#print(fullPeriodResult)
 	
 	# expanding period L/S portfolio construction
 	startRow = 0
@@ -70,24 +74,35 @@ def main():
 def regression(df, method="aic", startRow = 0, endRow = 684): #inclusive rows 
 
 	indNames = list(df.iloc[:, 1:])
-
+	#dataframes to contain betas and predicted values
 	lassoResults = pd.DataFrame(np.zeros((len(indNames), len(indNames))), columns = indNames, index = indNames)
-	df = df.iloc[startRow:endRow + 1, 1:] # no date
-
+	intercepts = pd.DataFrame(np.zeros(len(indNames)), columns = ["Intercept"])
+	out = pd.DataFrame(np.zeros(len(indNames)), columns = ["yPred"], index = indNames)
+	dfSliced = df.iloc[startRow:endRow + 1, 1:] # no date
+	
 	for indIndex in range(len(indNames)):
-		X = df.iloc[:-1, :] 
-		y = df.iloc[1:, indIndex]
+		X = dfSliced.iloc[:-1, :] 
+		y = dfSliced.iloc[1:, indIndex] #ignore date column
 
 		lasso = lassoM(X, y, method)
 		xIndex = np.nonzero(lasso.coef_)[0]
 		Xlin = X[X.columns[xIndex]]
+
 		if xIndex != []:
 			ols = linearM(Xlin, y)
-			j = 0
-			for i in xIndex:
-				lassoResults.iloc[indIndex, i] = ols.coef_[j]
-				j += 1
-	return lassoResults
+			
+			if mode == "predict":
+				Xnew = [df.iloc[endRow + 1, xIndex + 1]] # shift selected predictors by 1 columns (date)
+				out.iloc[indIndex, 0] = ols.predict(Xnew)[0]
+			elif mode == "fit":
+				j = 0
+				intercepts.iloc[indIndex, 0] = ols.intercept_
+				for i in xIndex:
+					lassoResults.iloc[indIndex, i] = ols.coef_[j]
+					j += 1
+
+	#return intercepts, lassoResults
+	return out if mode == "predict" else (intercepts, lassoResults)
 
 def loadData(indPath, rfPath, begDate, endDate):
 	#read in data
@@ -133,23 +148,17 @@ def createClass(excessReturns):
 
 
 def summaryStat(exsReturns):
-
-
 	#create new dataframe to hold summary statistics
 	resNames = ["Ann mean", "Ann vol", "Minimum", "Maximum", "Ann Sharpe"]
 	res = pd.DataFrame(columns = resNames)
 
-
 	#ann mean, vol, min, max, sharpe
-	#res.iloc[:, 0] = (np.prod(exsReturns/100 + 1, axis=0) ** (1/(nrow/12)) -1)*100
 	res.iloc[:, 0] = np.mean(exsReturns, axis=0) * 12
 	res.iloc[:, 1] = (np.std(exsReturns, axis=0) * (12 ** 0.5))
 	res.iloc[:, 2] = np.amin(exsReturns, axis=0)
 	res.iloc[:, 3] = np.amax(exsReturns, axis=0)
 	res.iloc[:, 4] = res.iloc[:, 0] / res.iloc[:, 1]
-
 	return res
-
 
 class IndExs(object):
 	def __init__(self, indIndex, df): #df = excess returns dataframe
@@ -159,18 +168,6 @@ class IndExs(object):
 		#self.X = df.iloc[:-1, ]    #leave out last month (2016-12) for lagged return
 		self.df = df
 		self.name = list(df)[indIndex]
-
-def normalize(classList, indIndex):
-	yInd = classList[indIndex]
-	ynorm = norm(yInd.y)
-	Xnorm = pd.DataFrame(columns = list(yInd.df))
-	i = 0
-	for ind in classList:
-		r = ind.exs.iloc[:-1] # leave out last month for x values
-		Xnorm.iloc[:, i] = norm(r)
-		i += 1
-	return (Xnorm, ynorm)
-
 
 def norm(series):
 	return (series - np.mean(series) / np.std(series))
