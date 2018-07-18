@@ -41,7 +41,7 @@ def main():
 		# writer.save()
 
 	df = exsReturns #with date
-	(inter, fullPeriodResult)= regression(df) # use aic
+	(inter, fullPeriodResult)= OLSlassoRegression(df) # use aic
 	# writer = pd.ExcelWriter("aic" + ".xlsx")
 	# fullPeriodResult.to_excel(writer, "Sheet1")
 	# writer.save()
@@ -51,28 +51,36 @@ def main():
 	startRow = 0
 	endRow = df.loc[df["Date"] == 196912].index[0]
 	lastRow = df.loc[df["Date"] == 201612].index[0]
-	#for e in range(endRow, lastRow):
-	e = endRow
-	print("startRow = ", startRow, "endRow = ", e)
-	B = regression(df, endRow = e)
-	X = df.iloc[e + 1, 1:] # no date, next time period
-	yhat = np.dot(B, X)
-	yhat = pd.DataFrame(yhat, index = B.index, columns = ["yhat"])
-	print(yhat)
-	yhat.sort_values(by = ["yhat"], ascending = True, inplace = True)
-	#print(yhat)
-	print(df.iloc[e + 1, 1:])
+	periodR = pd.DataFrame(np.zeros(lastRow - endRow))
+	for e in range(endRow, lastRow):
+		#print(e)
+		out = linRegression(df, endRow = e, mode="predict")
+		out.sort_values(by = ["yPred"], ascending = True, inplace = True)
+		#print("Mean positive", np.mean(out[out > 0.0]))
+
+		#print(out)
+
+		#after sorted returns, long top quintile, and short bottom quintile
+		bottomInd = out.iloc[:5, :].index #gives industries
+		topInd = out.iloc[-5:, :].index
+		
+		bottomR = df.loc[endRow + 1, bottomInd] #realized return
+		topR = df.loc[endRow + 1, topInd]
+		if np.average(topR) > 0: print("POSITIVE RETURNNNNNNNNN")
+		#print("predicted returns \n", out)
+		print(topR, "\n", bottomR, "\n")
+		print(df.iloc[e + 1, 0], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
+		periodR.iloc[e - endRow, :] = np.mean(topR) - np.mean(bottomR)
+		# print(bottomR)
+		# print(topR)
+		# print(df.loc[endRow + 1, :].sort_values())
+		# print(df.loc[endRow + 1, "Date"])
+		#print(df.iloc[e + 1, 1:])
+	print(np.mean(periodR) * 12)
 
 
 
-
-
-
-	
-
-
-def regression(df, method="aic", startRow = 0, endRow = 684): #inclusive rows 
-
+def OLSlassoRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #inclusive rows 
 	indNames = list(df.iloc[:, 1:])
 	#dataframes to contain betas and predicted values
 	lassoResults = pd.DataFrame(np.zeros((len(indNames), len(indNames))), columns = indNames, index = indNames)
@@ -103,6 +111,36 @@ def regression(df, method="aic", startRow = 0, endRow = 684): #inclusive rows
 
 	#return intercepts, lassoResults
 	return out if mode == "predict" else (intercepts, lassoResults)
+
+
+def linRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #inclusive rows 
+	indNames = list(df.iloc[:, 1:])
+	#dataframes to contain betas and predicted values
+	betas = pd.DataFrame(np.zeros((len(indNames), len(indNames))), columns = indNames, index = indNames)
+	intercepts = pd.DataFrame(np.zeros(len(indNames)), columns = ["Intercept"])
+	out = pd.DataFrame(np.zeros(len(indNames)), columns = ["yPred"], index = indNames)
+	dfSliced = df.iloc[startRow:endRow + 1, 1:] # no date
+	
+	for indIndex in range(len(indNames)):
+		X = dfSliced.iloc[:-1, :] 
+		y = dfSliced.iloc[1:, indIndex] 
+
+
+		ols = linearM(X, y)
+		
+		if mode == "predict":
+			Xnew = [df.iloc[endRow + 1, 1:]] # shift selected predictors by 1 columns (date)
+			out.iloc[indIndex, 0] = ols.predict(Xnew)[0]
+		elif mode == "fit":
+			j = 0
+			intercepts.iloc[indIndex, 0] = ols.intercept_
+			for i in range(len(indNames)):
+				betas.iloc[indIndex, i] = ols.coef_[j]
+				j += 1
+
+	#return intercepts, betas
+	return out if mode == "predict" else (intercepts, betas)
+
 
 def loadData(indPath, rfPath, begDate, endDate):
 	#read in data
