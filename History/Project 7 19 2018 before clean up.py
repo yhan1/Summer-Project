@@ -9,7 +9,7 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
 def main():
-	#read in data
+
 	indPath = "Data/30_Industry_Portfolios.CSV"
 	rfPath = "Data/rf.csv"
 	begDate = "195912"
@@ -17,48 +17,66 @@ def main():
 	(ind, rf) = loadData(indPath, rfPath, begDate, endDate)
 	exsReturns = excessReturns(ind, rf) 
 	nrow = rf.count()[0]
-	
-	#create summary table (table 1 in paper)
-	sumTable = summaryStat(exsReturns.iloc[:, 1:]) # no date
+	# writer = pd.ExcelWriter("excess.xlsx")
+	# exsReturns.to_excel(writer, "Sheet1")
+	# writer.save()
 
-	#OLS post Lasso with entire time period
+
+	#creat list of industry classes
+	classList = createClass(exsReturns.iloc[:, 1:]) # no date
+	sumTable = summaryStat(exsReturns.iloc[:, 1:]) # no date
+	# print(sumTable)
+	# writer = pd.ExcelWriter("output.xlsx")
+	# sumTable.to_excel(writer, "Sheet1")
+	# writer.save()
+
+
 	indNames = list(exsReturns.iloc[:, 1:])
+	m = ["aic", "bic", "LassoCV", "LassoLarsCV"] #aic and bic is using LassoLarsIC
+
+	# for method in m:
+	# 	lassoResults = regression(exsReturns, method)
+		# writer = pd.ExcelWriter(method + ".xlsx")
+		# lassoResults.to_excel(writer, "Sheet1")
+		# writer.save()
+
 	df = exsReturns #with date
 	(inter, fullPeriodResult)= OLSlassoRegression(df) # use aic
+	# writer = pd.ExcelWriter("aic" + ".xlsx")
+	# fullPeriodResult.to_excel(writer, "Sheet1")
+	# writer.save()
+	#print(fullPeriodResult)
 	
 	# expanding period L/S portfolio construction
 	startRow = 0
 	endRow = df.loc[df["Date"] == 196912].index[0]
 	lastRow = df.loc[df["Date"] == 201612].index[0]
 	periodR = pd.DataFrame(np.zeros(lastRow - endRow))
-	
-	ind = 0
-	print(type(endRow), type(lastRow))
-	dateIndex = df.loc[endRow:lastRow + 1, "Date"]
-	indBeta = pd.DataFrame(np.zeros((lastRow - endRow + 1, len(indNames))), index = dateIndex, columns = indNames)
 	for e in range(endRow, lastRow):
-		#change this to OLSlassoRegression(df, endRow = e, mode="predict")
-		(yPred, betas) = OLSlassoRegression(df, endRow = e, mode="predict")
-		
-		yPred.sort_values(by = ["yPred"], ascending = True, inplace = True)
-		#after sorted returns, long top quintile, and short bottom quintile
-		bottomInd = yPred.iloc[:5, :].index #find the industries
-		topInd = yPred.iloc[-5:, :].index
-		
-		bottomR = df.loc[endRow + 1, bottomInd] #get the realized returns
-		topR = df.loc[endRow + 1, topInd]
-		#print(yPred)
-		#print(topR, "\n", bottomR, "\n")
-		#print(df.iloc[e + 1, 0], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
-		periodR.iloc[e - endRow, :] = np.mean(topR) - np.mean(bottomR)
-		
-		indBeta.iloc[e - endRow, :] = betas.loc[betas.index[ind], :]
-	print(np.mean(periodR) * 12)
-	print(indBeta)
-	writer = pd.ExcelWriter("foodBeta.xlsx")
-	indBeta.to_excel(writer, "Sheet1")
-	writer.save()
+		#print(e)
+		out = linRegression(df, endRow = e, mode="predict")
+		out.sort_values(by = ["yPred"], ascending = True, inplace = True)
+		#print("Mean positive", np.mean(out[out > 0.0]))
 
+		#print(out)
+
+		#after sorted returns, long top quintile, and short bottom quintile
+		bottomInd = out.iloc[:5, :].index #gives industries
+		topInd = out.iloc[-5:, :].index
+		
+		bottomR = df.loc[endRow + 1, bottomInd] #realized return
+		topR = df.loc[endRow + 1, topInd]
+		if np.average(topR) > 0: print("POSITIVE RETURNNNNNNNNN")
+		#print("predicted returns \n", out)
+		print(topR, "\n", bottomR, "\n")
+		print(df.iloc[e + 1, 0], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
+		periodR.iloc[e - endRow, :] = np.mean(topR) - np.mean(bottomR)
+		# print(bottomR)
+		# print(topR)
+		# print(df.loc[endRow + 1, :].sort_values())
+		# print(df.loc[endRow + 1, "Date"])
+		#print(df.iloc[e + 1, 1:])
+	print(np.mean(periodR) * 12)
 
 
 
@@ -72,7 +90,7 @@ def OLSlassoRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit")
 	
 	for indIndex in range(len(indNames)):
 		X = dfSliced.iloc[:-1, :] 
-		y = dfSliced.iloc[1:, indIndex] 
+		y = dfSliced.iloc[1:, indIndex] #ignore date column
 
 		lasso = lassoM(X, y, method)
 		xIndex = np.nonzero(lasso.coef_)[0]
@@ -80,18 +98,19 @@ def OLSlassoRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit")
 
 		if xIndex != []:
 			ols = linearM(Xlin, y)
-			j = 0
-			intercepts.iloc[indIndex, 0] = ols.intercept_
-			for i in xIndex:
-				lassoResults.iloc[indIndex, i] = ols.coef_[j]
-				j += 1
+			
 			if mode == "predict":
 				Xnew = [df.iloc[endRow + 1, xIndex + 1]] # shift selected predictors by 1 columns (date)
 				out.iloc[indIndex, 0] = ols.predict(Xnew)[0]
-				
+			elif mode == "fit":
+				j = 0
+				intercepts.iloc[indIndex, 0] = ols.intercept_
+				for i in xIndex:
+					lassoResults.iloc[indIndex, i] = ols.coef_[j]
+					j += 1
 
 	#return intercepts, lassoResults
-	return (out, lassoResults) if mode == "predict" else (intercepts, lassoResults)
+	return out if mode == "predict" else (intercepts, lassoResults)
 
 
 def linRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #inclusive rows 
@@ -105,20 +124,22 @@ def linRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #in
 	for indIndex in range(len(indNames)):
 		X = dfSliced.iloc[:-1, :] 
 		y = dfSliced.iloc[1:, indIndex] 
+
+
 		ols = linearM(X, y)
-		j = 0
-		intercepts.iloc[indIndex, 0] = ols.intercept_
-		for i in range(len(indNames)):
-			betas.iloc[indIndex, i] = ols.coef_[j]
-			j += 1
+		
 		if mode == "predict":
 			Xnew = [df.iloc[endRow + 1, 1:]] # shift selected predictors by 1 columns (date)
 			out.iloc[indIndex, 0] = ols.predict(Xnew)[0]
-
-			
+		elif mode == "fit":
+			j = 0
+			intercepts.iloc[indIndex, 0] = ols.intercept_
+			for i in range(len(indNames)):
+				betas.iloc[indIndex, i] = ols.coef_[j]
+				j += 1
 
 	#return intercepts, betas
-	return (out, betas) if mode == "predict" else (intercepts, betas)
+	return out if mode == "predict" else (intercepts, betas)
 
 
 def loadData(indPath, rfPath, begDate, endDate):
@@ -131,6 +152,7 @@ def loadData(indPath, rfPath, begDate, endDate):
 	ind.rename(columns={'Unnamed: 0':'Date'}, inplace=True )
 
 	#only select certain dates 
+	
 	rf = rf.loc[(rf["dateff"] >= int(begDate)) & (rf["dateff"] <= int(endDate))]
 	startRow = (ind[ind.Date == begDate].index)[0]
 	endRow = (ind[ind.Date == endDate].index)[0]
@@ -147,13 +169,20 @@ def loadData(indPath, rfPath, begDate, endDate):
 
 	return (ind, rf)
 
-
 def excessReturns(ind, rf):
 	exsReturns = ind.copy()
 	indNames = list(ind)
 	for i in range(1, len(indNames)):
 		exsReturns.iloc[:, i] = ind.iloc[:, i] - rf.iloc[:, 1]
 	return exsReturns
+
+def createClass(excessReturns):
+	classList = []
+	colNames = list(excessReturns.iloc[:, 1:])
+	for i in range(len(colNames)):
+		a = IndExs(i, excessReturns)
+		classList.append(a)
+	return classList
 
 
 def summaryStat(exsReturns):
@@ -169,6 +198,17 @@ def summaryStat(exsReturns):
 	res.iloc[:, 4] = res.iloc[:, 0] / res.iloc[:, 1]
 	return res
 
+class IndExs(object):
+	def __init__(self, indIndex, df): #df = excess returns dataframe
+		#self.exs = df.iloc[:, indIndex]
+		#self.n = len(self.exs)
+		#self.y = self.exs[1:]      #does not include first month (1959-12), for lagged return
+		#self.X = df.iloc[:-1, ]    #leave out last month (2016-12) for lagged return
+		self.df = df
+		self.name = list(df)[indIndex]
+
+def norm(series):
+	return (series - np.mean(series) / np.std(series))
 
 def lassoM(X, y, method):
 	if (method == "aic") or (method == "bic"):
@@ -182,7 +222,6 @@ def lassoM(X, y, method):
 	
 	#print(lasso.alpha_)
 	return lasso
-
 
 def linearM(X, y):
 	lin = LinearRegression()
