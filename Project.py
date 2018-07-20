@@ -4,6 +4,8 @@ from scipy import stats
 from sklearn.linear_model import LassoLarsIC, LinearRegression, LassoCV, LassoLarsCV
 from sklearn import preprocessing
 import networkx as nx
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
@@ -28,10 +30,9 @@ def main():
 	
 	# expanding period L/S portfolio construction
 	startRow = 0
-	endRow = df.loc[df["Date"] == 196912].index[0]
+	endRow = df.loc[df["Date"] == 196912].index[0] #start before the first prediction date (paper uses 196912)
 	lastRow = df.loc[df["Date"] == 201612].index[0]
 	periodR = pd.DataFrame(np.zeros(lastRow - endRow))
-	
 	ind = 0
 	print(type(endRow), type(lastRow))
 	dateIndex = df.loc[endRow:lastRow + 1, "Date"]
@@ -47,18 +48,44 @@ def main():
 		
 		bottomR = df.loc[endRow + 1, bottomInd] #get the realized returns
 		topR = df.loc[endRow + 1, topInd]
-		#print(yPred)
-		#print(topR, "\n", bottomR, "\n")
-		#print(df.iloc[e + 1, 0], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
+		print(df.iloc[e + 1, 0], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
 		periodR.iloc[e - endRow, :] = np.mean(topR) - np.mean(bottomR)
 		
 		indBeta.iloc[e - endRow, :] = betas.loc[betas.index[ind], :]
 	print(np.mean(periodR) * 12)
-	print(indBeta)
-	writer = pd.ExcelWriter("foodBeta.xlsx")
-	indBeta.to_excel(writer, "Sheet1")
-	writer.save()
+	# print(indBeta)
+	# writer = pd.ExcelWriter("foodBeta.xlsx")
+	# indBeta.to_excel(writer, "Sheet1")
+	# writer.save()
+	lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", "Food Industry Betas Over Time")
 
+
+def lineplot(x, y, xlab, ylab, title):
+	for i in range(len(list(y))):
+		if (len(np.nonzero(y.iloc[:, i])[0]) == 0): # industry not used at all
+			plt.plot(x, y.iloc[:, i], label = "_nolegend_")
+
+		else:
+			plt.plot(x, y.iloc[:, i], label = list(y)[i])
+	plt.legend(fontsize = "medium", loc=2)
+
+	plt.title(title)
+	plt.ylabel(ylab)
+	plt.xlabel(xlab)
+	xAxis = np.array(np.zeros(len(x)//12 + 1))
+	print(xAxis)
+	j = 0
+	for i in range(0, len(x), 12):
+		print(i, j)
+		xAxis[j] = x[i]
+		j += 1
+	print(xAxis)
+
+	#xDate = 
+	#plt.xticks(range(x[0]//10, x[-1]//10, ), fontsize=14, rotation = "vertical")
+	#plt.xticks(x, rotation = "vertical")
+	plt.xticks(xAxis, rotation = "vertical")
+	plt.show()
 
 
 
@@ -142,6 +169,7 @@ def loadData(indPath, rfPath, begDate, endDate):
 
 	#convert returns to float and year to int
 	ind[indNames[1:]] = ind[indNames[1:]].astype(float)
+	
 	ind[indNames[0]] = ind[indNames[0]].astype(int)
 	rf["rf"] = rf["rf"] * 100 #all returns in percentages
 
