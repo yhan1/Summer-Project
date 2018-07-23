@@ -2,10 +2,10 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from sklearn.linear_model import LassoLarsIC, LinearRegression, LassoCV, LassoLarsCV
-from sklearn import preprocessing
-import networkx as nx
+import statsmodels.api as sm
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
+import matplotlib.cm as cm
+
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
@@ -30,63 +30,76 @@ def main():
 	
 	# expanding period L/S portfolio construction
 	startRow = 0
-	endRow = df.loc[df["Date"] == 196912].index[0] #start before the first prediction date (paper uses 196912)
+	endRow = df.loc[df["Date"] == 201610].index[0] #start before the first prediction date (paper uses 196912)
 	lastRow = df.loc[df["Date"] == 201612].index[0]
 	periodR = pd.DataFrame(np.zeros(lastRow - endRow))
-	ind = 0
-	print(type(endRow), type(lastRow))
-	dateIndex = df.loc[endRow:lastRow + 1, "Date"]
-	indBeta = pd.DataFrame(np.zeros((lastRow - endRow + 1, len(indNames))), index = dateIndex, columns = indNames)
+	# start with first predicting row
+	dateIndex = pd.period_range(start = pd.Period(str(df.loc[endRow + 1, "Date"]), freq = "M"), 
+								end = pd.Period(str(df.loc[lastRow, "Date"]), freq = "M"), freq = "M") 
+	indBetaList = [pd.DataFrame(np.zeros((lastRow - endRow, len(indNames))), index = dateIndex, columns = indNames) for i in range(len(indNames))]
+	indBeta = indBetaList[0]
 	for e in range(endRow, lastRow):
 		#change this to OLSlassoRegression(df, endRow = e, mode="predict")
 		(yPred, betas) = OLSlassoRegression(df, endRow = e, mode="predict")
 		
 		yPred.sort_values(by = ["yPred"], ascending = True, inplace = True)
+		#print("yPred    = ", yPred)
 		#after sorted returns, long top quintile, and short bottom quintile
 		bottomInd = yPred.iloc[:5, :].index #find the industries
 		topInd = yPred.iloc[-5:, :].index
 		
 		bottomR = df.loc[endRow + 1, bottomInd] #get the realized returns
 		topR = df.loc[endRow + 1, topInd]
-		print(df.iloc[e + 1, 0], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
+		print(indBeta.index[e - endRow], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
 		periodR.iloc[e - endRow, :] = np.mean(topR) - np.mean(bottomR)
 		
-		indBeta.iloc[e - endRow, :] = betas.loc[betas.index[ind], :]
+		indBeta.iloc[e - endRow, :] = betas.loc[betas.index[0], :]
+		for i in range(len(indNames)):
+			indBeta = indBetaList[i]
+			indBeta.iloc[e - endRow, :] = betas.loc[betas.index[i], :]
 	print(np.mean(periodR) * 12)
 	# print(indBeta)
-	# writer = pd.ExcelWriter("foodBeta.xlsx")
+	
+	# for i in range(len(indNames)):
+	# 	indBeta = indBetaList[i]
+	# 	writer = pd.ExcelWriter(indNames[i] + " betas over time.xlsx")
+	# 	indBeta.to_excel(writer, "Sheet1")
+	# 	writer.save()
+	# 	lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", indNames[i] + " Betas Over Time")
+	# indBeta = indBetaList[0]
+	# writer = pd.ExcelWriter(indNames[0] + " betas over time.xlsx")
 	# indBeta.to_excel(writer, "Sheet1")
 	# writer.save()
-	lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", "Food Industry Betas Over Time")
+
+	lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", indNames[0] + " Betas Over Time")
 
 
+
+
+# plots betas over time 
 def lineplot(x, y, xlab, ylab, title):
+	xnew = range(len(x)) # equally spaced
+	colors = cm.rainbow(np.linspace(0, 1, len(list(y))))
 	for i in range(len(list(y))):
 		if (len(np.nonzero(y.iloc[:, i])[0]) == 0): # industry not used at all
-			plt.plot(x, y.iloc[:, i], label = "_nolegend_")
-
+			plt.plot(xnew, y.iloc[:, i], label = "_nolegend_", color = colors[i])
 		else:
-			plt.plot(x, y.iloc[:, i], label = list(y)[i])
+			plt.plot(xnew, y.iloc[:, i], label = list(y)[i], color= colors[i])
 	plt.legend(fontsize = "medium", loc=2)
 
 	plt.title(title)
 	plt.ylabel(ylab)
 	plt.xlabel(xlab)
-	xAxis = np.array(np.zeros(len(x)//12 + 1))
-	print(xAxis)
-	j = 0
-	for i in range(0, len(x), 12):
-		print(i, j)
-		xAxis[j] = x[i]
-		j += 1
-	print(xAxis)
+	print(x)
+	print(x.asfreq("A").unique())
+	print(np.arange(len(x), step=12))
 
-	#xDate = 
-	#plt.xticks(range(x[0]//10, x[-1]//10, ), fontsize=14, rotation = "vertical")
-	#plt.xticks(x, rotation = "vertical")
-	plt.xticks(xAxis, rotation = "vertical")
+
+	plt.xticks(np.arange(len(x), step=12), x.asfreq("A").unique(), rotation = "vertical")
+
+	plt.savefig(title)
+	#plt.close()
 	plt.show()
-
 
 
 def OLSlassoRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #inclusive rows 
@@ -109,12 +122,18 @@ def OLSlassoRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit")
 			ols = linearM(Xlin, y)
 			j = 0
 			intercepts.iloc[indIndex, 0] = ols.intercept_
+			
 			for i in xIndex:
 				lassoResults.iloc[indIndex, i] = ols.coef_[j]
 				j += 1
 			if mode == "predict":
 				Xnew = [df.iloc[endRow + 1, xIndex + 1]] # shift selected predictors by 1 columns (date)
 				out.iloc[indIndex, 0] = ols.predict(Xnew)[0]
+				#print(Xnew)
+				#print("OLS predict   = ", ols.predict(Xnew))
+		else: # no x variables selected, then best prediction of y is average of y
+			intercepts.iloc[indIndex, 0] = np.average(y)
+			out.iloc[indIndex, 0] = np.average(y)
 				
 
 	#return intercepts, lassoResults
