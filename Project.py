@@ -32,32 +32,48 @@ def main():
 	startRow = 0
 	endRow = df.loc[df["Date"] == 196912].index[0] #start before the first prediction date (paper uses 196912)
 	lastRow = df.loc[df["Date"] == 201612].index[0]
-	periodR = pd.DataFrame(np.zeros(lastRow - endRow))
+	perf = pd.DataFrame(np.zeros(lastRow - endRow))
 	# start with first predicting row
 	dateIndex = pd.period_range(start = pd.Period(str(df.loc[endRow + 1, "Date"]), freq = "M"), 
 								end = pd.Period(str(df.loc[lastRow, "Date"]), freq = "M"), freq = "M") 
 	indBetaList = [pd.DataFrame(np.zeros((lastRow - endRow, len(indNames))), index = dateIndex, columns = indNames) for i in range(len(indNames))]
 	indBeta = indBetaList[0]
+	allIndPred = pd.DataFrame(np.zeros((lastRow - endRow, len(indNames))), index = dateIndex, columns = indNames) 
 	for e in range(endRow, lastRow):
 		#change this to OLSlassoRegression(df, endRow = e, mode="predict")
-		(yPred, betas) = OLSlassoRegression(df, endRow = e, mode="predict")
-		
+		(yPred, betas) = OLSlassoRegression(df, startRow = startRow, endRow = e, mode="predict")
+		yPred.loc[np.isnan(yPred)["yPred"], :] = np.nanmean(yPred, axis = 0) # change not predicted returns to mean of cross section returns
+		allIndPred.iloc[e - endRow, :] = yPred["yPred"]
+
 		yPred.sort_values(by = ["yPred"], ascending = True, inplace = True)
 		#print("yPred    = ", yPred)
 		#after sorted returns, long top quintile, and short bottom quintile
-		bottomInd = yPred.iloc[:5, :].index #find the industries
-		topInd = yPred.iloc[-5:, :].index
+		bottomInd = yPred.iloc[:6, :].index #find the industries
+		topInd = yPred.iloc[-6:, :].index
 		
-		bottomR = df.loc[endRow + 1, bottomInd] #get the realized returns
-		topR = df.loc[endRow + 1, topInd]
+		bottomR = df.loc[e + 1, bottomInd] #get the realized returns
+		topR = df.loc[e + 1, topInd]
 		print(indBeta.index[e - endRow], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
-		periodR.iloc[e - endRow, :] = np.mean(topR) - np.mean(bottomR)
-		
+		perf.iloc[e - endRow, 0] = np.mean(topR) - np.mean(bottomR)
+
 		indBeta.iloc[e - endRow, :] = betas.loc[betas.index[0], :]
+
 		# for i in range(len(indNames)):
 		# 	indBeta = indBetaList[i]
 		# 	indBeta.iloc[e - endRow, :] = betas.loc[betas.index[i], :]
-	print(np.mean(periodR) * 12)
+	perfMean = np.mean(perf) * 12
+	perfVol = np.std(perf) * (12 ** 0.5)
+	print(perfMean)
+	print(perfVol)
+	print(perfMean / perfVol)
+
+	# new graph
+	logcumR = np.log((1 + perf/100).cumprod()) 
+	#print((1 + periodR))
+	logcumR.plot()
+	plt.show()
+
+
 	# print(indBeta)
 	
 	# for i in range(len(indNames)):
@@ -71,7 +87,7 @@ def main():
 	# indBeta.to_excel(writer, "Sheet1")
 	# writer.save()
 
-	lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", indNames[0] + " Betas Over Time")
+	#lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", indNames[0] + " Betas Over Time")
 
 
 
@@ -127,15 +143,16 @@ def OLSlassoRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit")
 				#print(Xnew)
 				#print("OLS predict   = ", ols.predict(Xnew))
 		else: # no x variables selected, then best prediction of y is average of y
-			intercepts.iloc[indIndex, 0] = np.average(y)
-			out.iloc[indIndex, 0] = np.average(y)
+			# intercepts.iloc[indIndex, 0] = np.average(y)
+			# out.iloc[indIndex, 0] = np.average(y)
+			out.iloc[indIndex, 0] = np.nan
 				
 
 	#return intercepts, lassoResults
 	return (out, lassoResults) if mode == "predict" else (intercepts, lassoResults)
 
 
-def linRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #inclusive rows 
+def OLSRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #inclusive rows 
 	indNames = list(df.iloc[:, 1:])
 	#dataframes to contain betas and predicted values
 	betas = pd.DataFrame(np.zeros((len(indNames), len(indNames))), columns = indNames, index = indNames)
@@ -155,8 +172,6 @@ def linRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit"): #in
 		if mode == "predict":
 			Xnew = [df.iloc[endRow + 1, 1:]] # shift selected predictors by 1 columns (date)
 			out.iloc[indIndex, 0] = ols.predict(Xnew)[0]
-
-			
 
 	#return intercepts, betas
 	return (out, betas) if mode == "predict" else (intercepts, betas)
