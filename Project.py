@@ -32,62 +32,69 @@ def main():
 	startRow = 0
 	endRow = df.loc[df["Date"] == 196912].index[0] #start before the first prediction date (paper uses 196912)
 	lastRow = df.loc[df["Date"] == 201612].index[0]
-	perf = pd.DataFrame(np.zeros(lastRow - endRow))
+
 	# start with first predicting row
 	dateIndex = pd.period_range(start = pd.Period(str(df.loc[endRow + 1, "Date"]), freq = "M"), 
-								end = pd.Period(str(df.loc[lastRow, "Date"]), freq = "M"), freq = "M") 
-	indBetaList = [pd.DataFrame(np.zeros((lastRow - endRow, len(indNames))), index = dateIndex, columns = indNames) for i in range(len(indNames))]
-	indBeta = indBetaList[0]
-	allIndPred = pd.DataFrame(np.zeros((lastRow - endRow, len(indNames))), index = dateIndex, columns = indNames) 
+	                            end = pd.Period(str(df.loc[lastRow, "Date"]), freq = "M"), freq = "M") 
+
+	# dataframes to contain return for each time period for ols post lasso, ols, and prevailing mean
+	periodR = pd.DataFrame(np.zeros(lastRow - endRow), columns = ["r"], index = dateIndex)
+	periodRLin = pd.DataFrame(np.zeros(lastRow - endRow), columns = ["r"], index = dateIndex)
+	periodRPM = pd.DataFrame(np.zeros(lastRow - endRow), columns = ["r"], index = dateIndex)
+
+	indBeta = pd.DataFrame(np.zeros((lastRow - endRow, len(indNames))), index = dateIndex, columns = indNames) 
+	ind = 0 # food
+
 	for e in range(endRow, lastRow):
-		#change this to OLSlassoRegression(df, endRow = e, mode="predict")
-		(yPred, betas) = OLSlassoRegression(df, startRow = startRow, endRow = e, mode="predict")
-		yPred.loc[np.isnan(yPred)["yPred"], :] = np.nanmean(yPred, axis = 0) # change not predicted returns to mean of cross section returns
-		allIndPred.iloc[e - endRow, :] = yPred["yPred"]
+	    #OLS POST LASSO OUTPUTS
+	    (yPred, betas) = OLSlassoRegression(df, startRow = startRow, endRow = e, mode="predict")
 
-		yPred.sort_values(by = ["yPred"], ascending = True, inplace = True)
-		#print("yPred    = ", yPred)
-		#after sorted returns, long top quintile, and short bottom quintile
-		bottomInd = yPred.iloc[:6, :].index #find the industries
-		topInd = yPred.iloc[-6:, :].index
-		
-		bottomR = df.loc[e + 1, bottomInd] #get the realized returns
-		topR = df.loc[e + 1, topInd]
-		print(indBeta.index[e - endRow], np.round(np.average(topR)), np.round(np.average(bottomR)), np.round(np.average(topR) - np.average(bottomR)))
-		perf.iloc[e - endRow, 0] = np.mean(topR) - np.mean(bottomR)
+	    # change not predicted returns to mean of cross section returns
+	    yPred.loc[np.isnan(yPred)["yPred"], :] = np.nanmean(yPred, axis = 0)
+	    yPred.sort_values(by = ["yPred"], ascending = True, inplace = True)
+	    bottomInd = yPred.iloc[:6, :].index #find the industries
+	    topInd = yPred.iloc[-6:, :].index
+	    bottomR = df.loc[e + 1, bottomInd] #get the realized returns
+	    topR = df.loc[e + 1, topInd]
+	    
+	    print(indBeta.index[e - endRow], np.round(np.average(topR), 2), np.round(np.average(bottomR), 2), np.round(np.average(topR) - np.average(bottomR), 2))
+	    periodR.iloc[e - endRow, :] = np.mean(topR) - np.mean(bottomR)
+	    indBeta.iloc[e - endRow, :] = betas.loc[betas.index[ind], :]
+	    
+	    #LINEAR MODEL OUTPUTS
+	    (yPredLin, betasLin) = OLSRegression(df, startRow = startRow, endRow = e, mode="predict")
+	    yPredLin.sort_values(by = ["yPred"], ascending = True, inplace = True)
+	    bottomIndLin = yPredLin.iloc[:6, :].index #find the industries
+	    topIndLin = yPredLin.iloc[-6:, :].index
+	    bottomRLin = df.loc[e + 1, bottomIndLin] #get the realized returns
+	    topRLin = df.loc[e + 1, topIndLin]
+	    periodRLin.iloc[e - endRow, :] = np.mean(topRLin) - np.mean(bottomRLin)
+	    
+	    #PREVAILING MEAN OUPUTS
+	    X = df.iloc[startRow:e + 1, 1:]
+	    yPredPM = np.mean(X, axis = 0)
+	    yPredPM.sort_values(ascending = True, inplace = True)
+	    bottomIndPM = yPredPM[:6].index #find the industries
+	    topIndPM = yPredLin.iloc[-6:, :].index
+	    bottomRPM = df.loc[e + 1, bottomIndPM] #get the realized returns
+	    topRPM = df.loc[e + 1, topIndPM]
+	    periodRPM.iloc[e - endRow, :] = np.mean(topRPM) - np.mean(bottomRPM)
 
-		indBeta.iloc[e - endRow, :] = betas.loc[betas.index[0], :]
-
-		# for i in range(len(indNames)):
-		# 	indBeta = indBetaList[i]
-		# 	indBeta.iloc[e - endRow, :] = betas.loc[betas.index[i], :]
-	perfMean = np.mean(perf) * 12
-	perfVol = np.std(perf) * (12 ** 0.5)
-	print(perfMean)
-	print(perfVol)
-	print(perfMean / perfVol)
-
-	# new graph
-	logcumR = np.log((1 + perf/100).cumprod()) 
-	#print((1 + periodR))
-	logcumR.plot()
-	plt.show()
 
 
-	# print(indBeta)
-	
-	# for i in range(len(indNames)):
-	# 	indBeta = indBetaList[i]
-	# 	writer = pd.ExcelWriter(indNames[i] + " betas over time.xlsx")
-	# 	indBeta.to_excel(writer, "Sheet1")
-	# 	writer.save()
-	# 	lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", indNames[i] + " Betas Over Time")
-	# indBeta = indBetaList[0]
-	# writer = pd.ExcelWriter(indNames[0] + " betas over time.xlsx")
-	# indBeta.to_excel(writer, "Sheet1")
-	# writer.save()
+	writer = pd.ExcelWriter("portReturns.xlsx")
+	periodR.to_excel(writer, "Sheet1")
+	writer.save()
 
-	#lineplot(indBeta.index, indBeta, "Date", "OLS post Lasso Coefficient", indNames[0] + " Betas Over Time")
+	writer = pd.ExcelWriter("OLSReturns.xlsx")
+	periodRLin.to_excel(writer, "Sheet1")
+	writer.save()
+
+	writer = pd.ExcelWriter("PMReturns.xlsx")
+	periodRPM.to_excel(writer, "Sheet1")
+	writer.save()
+
+	print(np.mean(periodR["r"]) * 12)
 
 
 
@@ -140,8 +147,7 @@ def OLSlassoRegression(df, method="aic", startRow = 0, endRow = 684, mode="fit")
 			if mode == "predict":
 				Xnew = [df.iloc[endRow + 1, xIndex + 1]] # shift selected predictors by 1 columns (date)
 				out.iloc[indIndex, 0] = ols.predict(Xnew)[0]
-				#print(Xnew)
-				#print("OLS predict   = ", ols.predict(Xnew))
+	
 		else: # no x variables selected, then best prediction of y is average of y
 			# intercepts.iloc[indIndex, 0] = np.average(y)
 			# out.iloc[indIndex, 0] = np.average(y)
